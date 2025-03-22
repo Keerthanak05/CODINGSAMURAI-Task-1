@@ -1,0 +1,72 @@
+!pip install yfinance matplotlib seaborn scikit-learn
+!pip install yfinance numpy pandas matplotlib seaborn tensorflow scikit-learn
+import numpy as np
+import pandas as pd
+import yfinance as yf
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import MinMaxScaler
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, LSTM
+
+# Set random seed for reproducibility
+np.random.seed(42)
+tf.random.set_seed(42)
+# Download stock data (Example: Tesla - TSLA)
+ticker = 'TSLA'
+df = yf.download(ticker, start="2010-01-01", end="2024-03-01")
+
+# Use only 'Close' price
+df = df[['Close']]
+print(df.head())
+scaler = MinMaxScaler(feature_range=(0, 1))
+df_scaled = scaler.fit_transform(df)
+
+# Convert back to DataFrame
+df_scaled = pd.DataFrame(df_scaled, columns=['Close'])
+def create_sequences(data, time_steps=50):
+    X, y = [], []
+    for i in range(len(data) - time_steps):
+        X.append(data[i:i + time_steps])
+        y.append(data[i + time_steps])
+    return np.array(X), np.array(y)
+
+time_steps = 50  # Past 50 days used for prediction
+X, y = create_sequences(df_scaled.values, time_steps)
+
+# Split into train and test sets (80% train, 20% test)
+split = int(0.8 * len(X))
+X_train, y_train = X[:split], y[:split]
+X_test, y_test = X[split:], y[split:]
+
+print(f"Train Shape: {X_train.shape}, Test Shape: {X_test.shape}")
+model = Sequential([
+    LSTM(units=50, return_sequences=True, input_shape=(time_steps, 1)),
+    LSTM(units=50, return_sequences=False),
+    Dense(units=25),
+    Dense(units=1)
+])
+
+model.compile(optimizer='adam', loss='mean_squared_error')
+model.summary()
+
+history = model.fit(X_train, y_train, epochs=20, batch_size=32, validation_data=(X_test, y_test), verbose=1)
+
+predictions = model.predict(X_test)
+predictions = scaler.inverse_transform(predictions)  # Convert back to original scale
+y_test_actual = scaler.inverse_transform(y_test.reshape(-1, 1))  # Convert actual values
+
+from sklearn.metrics import mean_squared_error
+
+mse = mean_squared_error(y_test_actual, predictions)
+print(f"Mean Squared Error: {mse}")
+
+plt.figure(figsize=(10, 5))
+plt.plot(df.index[-len(y_test):], y_test_actual, label="Actual Prices", color='blue')
+plt.plot(df.index[-len(y_test):], predictions, label="Predicted Prices", color='red')
+plt.legend()
+plt.title(f"LSTM Stock Price Prediction for {ticker}")
+plt.xlabel("Date")
+plt.ylabel("Closing Price")
+plt.show()
